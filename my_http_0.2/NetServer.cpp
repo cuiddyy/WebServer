@@ -1,10 +1,11 @@
 #include "NetServer.h"
-#include "NewRequest.h"
+//#include "NewRequest.h"
 #include "NewResponse.h"
 #include "Epoll.h"
 #include "ThreadPool.h"
 #include "Timer.h"
-#include "SocketsHel.h"
+//#include "SocketsHel.h"
+#include "ComAddress.h"
 //#include "Utils.h"
 
 
@@ -24,14 +25,33 @@
 //const int NetServer::CONNECT_TIMEOUT_ = 500;
 //const int NetServer::poolSize_ = 4;
 
-NetServer::NetServer(int port,int numThread)
-	:port_(port),
+NetServer::NetServer(const ComAddress& serverAddr,int numThread)
+	:port_(serverAddr.dport_stctoin()),
 	 listenFd_(createNonblockingHel(port_)),
 	 serverRequest_(new NewRequest(listenFd_)),
+	 serverSocket_(listenFd_),
 	 epoll_(new Epoll()),
 	 threadPool_(new ThreadPool(numThread)),
-	 timerTable_(new TimerTable()){
+	 timerTable_(new TimerTable())
+	{
 	 	assert(listenFd_ >= 0);
+		serverSocket_.setReuseAddr(true);
+		//serverSocket_.setReusePort(true);
+		/*printf("NetServer_fd=%d\n",listenFd_);
+		struct sockaddr_in addr;
+		::bzero((char*)&addr,sizeof(addr));
+		addr.sin_family = AF_INET;
+		addr.sin_port = ::htons((unsigned short)port_);
+		addr.sin_addr.s_addr = ::htonl(INADDR_ANY);
+		//::inet_pton(AF_INET,"127.0.0.1",&addr.sin_addr.s_addr);
+		/*if(::bind(listenFd_,sockaddr_cast(&addr),static_cast<socklen_t>(sizeof(addr)))==-1){
+			printf("SocketsHel::createNonblockingHel fd=%d bind:%s\n",listenFd_,strerror(errno));
+		}*/
+		//bindHel(listenFd_,sockaddr_cast(&addr));
+		serverSocket_.bindAddr(serverAddr);
+		//inet_ntop(AF_INET,&addr_.sin_addr.s_addr,buf,64);
+		listenHel(listenFd_);		
+		
 	 }
 
  
@@ -62,6 +82,8 @@ void NetServer::recvConnection()
 }
 */
 void NetServer::start(){
+	//serverSocket_.startListen();
+
 	//添加服务器监听套接字到epoll下,并注册可读事件
 	epoll_ -> add(listenFd_,serverRequest_,(EPOLLIN | EPOLLET));
 	//注册新建连接回调事件	

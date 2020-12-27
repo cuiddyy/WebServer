@@ -6,6 +6,7 @@
 #include <unordered_map>
 
 #include "NewRequest.h"
+#include "InitSocket.h"
 
 #define TIMEOUTMS -1 // epoll_wait超时时间，-1表示不设超时
 #define CONNECT_TIMEOUT 500 // 连接默认超时时间
@@ -18,11 +19,11 @@
 class Epoll;
 class ThreadPool;
 class TimerTable;
-
+class ComAddress;
 
 class NetServer {
 public:
-    NetServer(int port, int numThread);
+    NetServer(const ComAddress& serverAddr, int numThread);
     ~NetServer();
     void start(); // 启动HTTP服务器
     
@@ -39,12 +40,15 @@ private:
 	using NewquPtrsMap = std::unordered_map<int,NewRequestPtr>;
     int port_; // 监听端口
     int listenFd_; // 监听套接字
+
     NewRequestPtr serverRequest_; // 监听套接字的NewRequest实例
-    EpollPtr epoll_; // epoll实例
+    InitSocket serverSocket_;
+
+	EpollPtr epoll_; // epoll实例
     ThreadPoolPtr threadPool_; // 线程池
     TimerTablePtr timerTable_; // 定时器管理器
 	NewquPtrsMap ptrsMap_;
-
+	
 }; // class NetServer
 
 

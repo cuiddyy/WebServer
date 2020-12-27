@@ -1,10 +1,9 @@
 #ifndef POLLER__H__
 #define POLLER__H__
 
-using 
+#include "BasePoll.h"
 
-
-class Poller{
+class Poller:public BasePoll{
 public:
 	Poller();
 	~Poller();
@@ -12,7 +11,10 @@ public:
 	int addEvents(int fd,int events);
 	int updateEvents(int fd,int events);
 	int removeEvents(int fd,int events);
-
+	
+private:
+	using PollFds = std::vector<struct pollfd>;
+	PollFds pollfds_;
 };
 
 
