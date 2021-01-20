@@ -9,7 +9,6 @@
 
 NewRequest::NewRequest(int fd):fd_(fd),
 	working_(false),
-	timer_(nullptr),
 	state_(ExceptRequestLine),
 	method_(Invalid),
 	version_(Unknown){

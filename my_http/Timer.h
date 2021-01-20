@@ -1,6 +1,9 @@
 #ifndef TIMER__H__
 #define TIMER__H__
 
+#include "NewRequest.h"
+#include "TimeTools.h"
+
 #include <functional>
 #include <chrono>
 #include <queue>
@@ -8,13 +11,16 @@
 #include <iostream>
 #include <cassert>
 #include <mutex>
+#include <memory>
+
+
+
 
 using TimeoutCallback = std::function<void()>;
-using Clock = std::chrono::high_resolution_clock;
-using MS = std::chrono::milliseconds;
-using Timestamp = Clock::time_point;
+//using Clock = std::chrono::high_resolution_clock;
+//using MS = std::chrono::milliseconds;
+//using Timestamp = Clock::time_point;
 
-class NewRequest;
 
 class Timer{
 public:
@@ -23,24 +29,27 @@ public:
 	del_(false),
 	timerCallback_(timerCallback){}
 	~Timer(){}
-	void del() {del_ = true;}
-	bool isDeleted() {return del_;}
 	Timestamp getDeadTime() const {return deadTime_;}
 	void runCalllback() {timerCallback_();}
-
+	bool isDel() const {return del_;}
+	void Del(){del_ = true;}
 private:
 	Timestamp deadTime_;
-	bool del_;
 	TimeoutCallback timerCallback_;
+	bool del_;
 };
+
+
+using TimerPtr = std::shared_ptr<Timer>;
 
 class timerCmp{
 public:
-	bool operator()(Timer* t1,Timer* t2){
+	bool operator()(const TimerPtr &t1,const TimerPtr &t2){
 		assert(t1 != nullptr && t2 != nullptr);
 		return (t1->getDeadTime()) > (t2->getDeadTime());
 	}
 };
+
 
 class TimerTable{
 
@@ -48,14 +57,14 @@ public:
 	TimerTable():now_(Clock::now()){}
 	~TimerTable(){}
 	void updateTimer(){now_ = Clock::now();}
-	void addTimer(NewRequest* requ,const int& deadTime,const TimeoutCallback& cb);//deadTime单位为ms
-	void delTimer(NewRequest* requ);
+	void addTimer(NewRequestPtr requPtr,const int& deadTime,const TimeoutCallback& cb);//deadTime单位为ms
+	void delTimer(NewRequestPtr requPtr);
 	void manageDeadTimers();
 	int getNextDeadTimer();
 
 
 private:
-	using TimerQueue = std::priority_queue<Timer*,std::vector<Timer*>,timerCmp>;
+	using TimerQueue = std::priority_queue<TimerPtr,std::vector<TimerPtr>,timerCmp>;
 	TimerQueue timersQ_;
 	Timestamp now_;
 	std::mutex lock_;

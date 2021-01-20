@@ -1,5 +1,5 @@
 #include "SocketsHel.h"
-
+#include "Types.h"
 
 
 #include <cstring> // strlen,memset
@@ -14,7 +14,7 @@
 #include <stdint.h>
 #include <endian.h>
 
-
+//class ComAddress;
 
 const struct sockaddr* sockaddr_cast(const struct sockaddr_in* addr){
 	return static_cast<const struct sockaddr*>(implicit_cast<const void*>(addr));
@@ -28,11 +28,6 @@ struct sockaddr* sockaddr_cast(struct sockaddr_in* addr){
 struct sockaddr_in* sockaddr_in_cast(struct sockaddr* addr){
 	return static_cast<struct sockaddr_in*>(implicit_cast<void*>(addr));
 }
-
-
-
-
-
 
 
 void setnbAndcoeHel(int socketfd){
@@ -52,41 +47,32 @@ int createNonblockingHel(int port){
 	//创建套接字
 	int socketfd = ::socket(AF_INET,SOCK_STREAM | SOCK_NONBLOCK ,0);
 	if(socketfd<0){
-		printf("createNonblockingHel\n");
+		printf("SocketsHel::createNonblockingHel:%s\n",strerror(errno));
 	}
-	//避免addr已经被use
-	int optval = 1;
-	if(::setsockopt(socketfd,SOL_SOCKET,SO_REUSEADDR,&optval,static_cast<socklen_t>(sizeof(optval))) == -1){
-		printf("SocketsHel::createNonblockingHel fd=%d setsockopt : %s\n",socketfd,strerror(errno));
-		return -1;
-	}
-    //bind套接字和ip,端口	
-	struct sockaddr_in addr;
-	::bzero((char*)&addr,sizeof(addr));
-	addr.sin_family = AF_INET;
-	addr.sin_addr.s_addr = ::htonl(INADDR_ANY);
-	addr.sin_port = ::htons((unsigned short)port);
-	if(::bind(socketfd,sockaddr_cast(&addr),static_cast<socklen_t>(sizeof(addr)))==-1){
-		printf("SocketsHel::createNonblockingHel fd=%d bind:%s\n",socketfd,strerror(errno));
-	}
-
-	//开始监听
-	listenHel(socketfd);
 	
-	if(socketfd == -1){
-		::close(socketfd);
-		return -1;
-	}
-
 	return socketfd;
 }
 
+void bindHel(int socketFd,const sockaddr* addr){
+	/*const sockaddr_in* addr_ = sockaddr_in_cast(addr);
+	uint16_t port = ntohs(addr_->sin_port);
+	char buf[64];
+	inet_ntop(AF_INET,&(addr_->sin_addr.s_addr),buf,64);
+	printf("bindHel__fd=%d__port=%d__ip=%s\n",socketFd,port,buf);
+	*/
+	if((::bind(socketFd,addr,static_cast<socklen_t>(sizeof(sockaddr_in))))==-1){
+		//*****一定要注意这里传过来的addr实际大小是一个struct sockaddr_in,而不是一个sockaddr的大小,更不是一个指针的大小.
+		printf("SocketsHel::createNonblockingHel fd=%d bind:%s\n",socketFd,strerror(errno));
+	}
+
+}
 
 void listenHel(int socketfd){
 	int res = ::listen(socketfd,1024);
 	if(res < 0){
-		printf("listenHel\n");
+		printf("SocketsHel::istenHel:%s\n",strerror(errno));
 	}
+	printf("成功监听%d\n",socketfd);
 }
 
 int acceptHel(int socketfd,struct sockaddr_in* addr){
@@ -95,7 +81,7 @@ int acceptHel(int socketfd,struct sockaddr_in* addr){
 	setnbAndcoeHel(accfd);
 	if(accfd < 0){
 		//int savedErrno = errno;
-		printf("acceptHel\n");
+		printf("SocketsHel::acceptHel:%s\n",strerror(errno));
 	}
 	return accfd;
 }
@@ -118,19 +104,19 @@ ssize_t writeHel(int socketfd,const void *buf,size_t count){
 void closeHel(int socketfd){
 	int res = ::close(socketfd);
 	if(res < 0){
-		printf("closeHel\n");
+		printf("SocketsHel::closeHel:%s\n",strerror(errno));
 	}
 }
 
 void closeWriteHel(int socketfd){
 	int res = ::shutdown(socketfd,SHUT_WR);
 	if(res < 0){
-		printf("closeWrite\n");
+		printf("SocketsHel::closeWrite:%s\n",strerror(errno));
 	}
 }
 
 void ipport_stctos(char *buf,size_t size,const struct sockaddr* addr){
-	ip_stctos(buf,size,addr);
+	//ip_stctos(buf,size,addr);
 	size_t cur = ::strlen(buf);
 	const struct sockaddr_in* addr4 = sockaddr_in_cast(addr);
 	uint16_t port = be16toh(addr4->sin_port);
@@ -149,11 +135,19 @@ void ip_stctos(char *buf,size_t size,const struct sockaddr* addr){
 }
 
 void ipport_stostc(const char* ip,uint16_t port,struct sockaddr_in* addr){
+	//::bzero((char*)&addr,sizeof(addr));
 	addr->sin_family = AF_INET;
-	addr->sin_port = htobe16(port);
-	if(::inet_pton(AF_INET,ip,&addr->sin_addr) <= 0){
-		printf("ipport_stostc\n");
+	addr->sin_port = ::htons(port);
+	if(ip == "0.0.0.0" || ip=="127.0.0.1"){
+		addr->sin_addr.s_addr = ::htonl(INADDR_ANY);
+		
+	}else{
+		if(::inet_pton(AF_INET,ip,&addr->sin_addr.s_addr) <= 0){
+			printf("ipport_stostc\n");
+		}
+
 	}
+
 }
 
 int getSocketError(int socketfd){
@@ -171,7 +165,7 @@ struct sockaddr_in getLocalAddr(int socketfd){
 	memZero(&localaddr,sizeof localaddr);
 	socklen_t addrlen = static_cast<socklen_t>(sizeof localaddr);
 	if(::getsockname(socketfd,sockaddr_cast(&localaddr),&addrlen) < 0){
-		printf("getLocalAddr\n");
+		printf("SocketsHel::getLocalAddr:%s\n",strerror(errno));
 	}
 
 	return localaddr;
@@ -183,7 +177,7 @@ struct sockaddr_in getPeerAddr(int socketfd){
 	memZero(&peeraddr,sizeof peeraddr);
 	socklen_t addrlen = static_cast<socklen_t>(sizeof peeraddr);
 	if(::getpeername(socketfd,sockaddr_cast(&peeraddr),&addrlen) < 0){
-		printf("getPeerAddr\n");
+		printf("SocketsHel::getPeerAddr:%s\n",strerror(errno));
 	}
 	return peeraddr;
 }

@@ -2,7 +2,7 @@
 #define NEWREQUEST__H__
 
 #include "Buffer.h"
-
+//#include "Timer.h"
 #include <string>
 #include <map>
 #include <iostream>
@@ -11,8 +11,7 @@
 #define STATIC_ROOT "../www"
 
 class Timer;
-
-using NewRequestPtr = shared_ptr<NewRequest>;
+using TimerPtr = std::shared_ptr<Timer>;
 
 class NewRequest {
 public:
@@ -23,8 +22,8 @@ public:
 	int write(int* savedErrno);
 	void appendToOutBuffer(const Buffer& buf){outBuffer_.append(buf);}	
 	int writableBytes() const {return outBuffer_.readableBytes();}
-	void setTimer(Timer* timer) {timer_ = timer;}
-	Timer* getTimer() const {return timer_;}
+	void setTimer(TimerPtr timer) {wtptr_ = timer;}
+	std::weak_ptr<Timer> getTimer() const {return wtptr_;}
 	void setWorking(){working_ = true;}
 	void setNoWorking(){working_ = false;}
 	bool isWorking() const {return working_;}
@@ -85,7 +84,7 @@ private:
 	Buffer outBuffer_; //写缓冲区
 	bool working_; //若正在工作,就不能将其移除.
 
-	Timer* timer_; //该连接的时间计时器
+	std::weak_ptr<Timer> wtptr_; //该连接的时间计时器
 	
 	//报文解析相关变量
 	NewRequestParseState state_;  //报文解析状态
@@ -97,7 +96,6 @@ private:
 
 };
 
-
-
+using  NewRequestPtr = std::shared_ptr<NewRequest>;
 
 #endif

@@ -4,7 +4,10 @@
 #include <arpa/inet.h>
 #include <cstring> //memset
 
-inline void memZero(void* p,size_t n){
+//int aaaa=26;
+
+
+/*inline void memZero(void* p,size_t n){
 	memset(p,0,n);
 }
 
@@ -12,7 +15,7 @@ template<typename Des,typename Sou>
 inline Des implicit_cast(Sou const &f){
 	return f;
 }
-
+*/
 void setnbAndcoeHel(int socketfd);
 int createNonblockingHel(int port);
 
@@ -20,16 +23,18 @@ int createNonblockingHel(int port);
 //void setReusePort(bool tar);
 //void setKeepAlive(bool tar);
 
-int connectHel(int socketfd,const struct sockaddr* addr);
+void setnbAndcoeHel(int socketfd);
+int createNonblockingHel(int port);
 void bindHel(int socketfd,const struct sockaddr* addr);
 void listenHel(int socketfd);
 int acceptHel(int socketfd,struct sockaddr_in* addr);
-ssize_t readHel(int socketfd,void *buf,size_t count);
+int connectHel(int socketfd,const struct sockaddr* addr);
+size_t readHel(int socketfd,void *buf,size_t count);
 ssize_t readvHel(int socketfd,const struct iovec *iov,int iovcnt);
 ssize_t writeHel(int socketfd,const void *buf,size_t count);
 void closeHel(int socketfd);
 void closeWriteHel(int socketfd);
-void setSockAddrHel(struct sockaddr_in* addr);
+//void setSockAddrHel(struct sockaddr_in* addr);
 void ipport_stctos(char *ip,size_t size,const struct sockaddr* addr);
 void ip_stctos(char *ip,size_t size,const struct sockaddr* addr);
 

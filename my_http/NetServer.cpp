@@ -1,10 +1,11 @@
 #include "NetServer.h"
-#include "NewRequest.h"
+//#include "NewRequest.h"
 #include "NewResponse.h"
 #include "Epoll.h"
 #include "ThreadPool.h"
 #include "Timer.h"
-#include "SocketsHel.h"
+//#include "SocketsHel.h"
+#include "ComAddress.h"
 //#include "Utils.h"
 
 
@@ -24,14 +25,33 @@
 //const int NetServer::CONNECT_TIMEOUT_ = 500;
 //const int NetServer::poolSize_ = 4;
 
-NetServer::NetServer(int port,int numThread)
-	:port_(port),
+NetServer::NetServer(const ComAddress& serverAddr,int numThread)
+	:port_(serverAddr.dport_stctoin()),
 	 listenFd_(createNonblockingHel(port_)),
 	 serverRequest_(new NewRequest(listenFd_)),
+	 serverSocket_(listenFd_),
 	 epoll_(new Epoll()),
 	 threadPool_(new ThreadPool(numThread)),
-	 timerTable_(new TimerTable()){
+	 timerTable_(new TimerTable())
+	{
 	 	assert(listenFd_ >= 0);
+		serverSocket_.setReuseAddr(true);
+		//serverSocket_.setReusePort(true);
+		/*printf("NetServer_fd=%d\n",listenFd_);
+		struct sockaddr_in addr;
+		::bzero((char*)&addr,sizeof(addr));
+		addr.sin_family = AF_INET;
+		addr.sin_port = ::htons((unsigned short)port_);
+		addr.sin_addr.s_addr = ::htonl(INADDR_ANY);
+		//::inet_pton(AF_INET,"127.0.0.1",&addr.sin_addr.s_addr);
+		/*if(::bind(listenFd_,sockaddr_cast(&addr),static_cast<socklen_t>(sizeof(addr)))==-1){
+			printf("SocketsHel::createNonblockingHel fd=%d bind:%s\n",listenFd_,strerror(errno));
+		}*/
+		//bindHel(listenFd_,sockaddr_cast(&addr));
+		serverSocket_.bindAddr(serverAddr);
+		//inet_ntop(AF_INET,&addr_.sin_addr.s_addr,buf,64);
+		listenHel(listenFd_);		
+		
 	 }
 
  
@@ -54,16 +74,18 @@ void NetServer::recvConnection()
 			break;
 		}
 		//为新的连接套接字分配NewRequest资源
-		NewRequest* request = new NewRequest(acceptFd);
-		timerTable_ -> addTimer(request, CONNECT_TIMEOUT, std::bind(&NetServer::shutDownConnection, this, request));
+		NewRequest* requPtrest = new NewRequest(acceptFd);
+		timerTable_ -> addTimer(requPtrest, CONNECT_TIMEOUT, std::bind(&NetServer::shutDownConnection, this, requPtrest));
 		// 注册连接套接字到epoll（可读，边缘触发，保证任一时刻只被一个线程处理）
-		epoll_ -> add(acceptFd, request, (EPOLLIN | EPOLLONESHOT));
+		epoll_ -> add(acceptFd, requPtrest, (EPOLLIN | EPOLLONESHOT));
 	}
 }
 */
 void NetServer::start(){
+	//serverSocket_.startListen();
+
 	//添加服务器监听套接字到epoll下,并注册可读事件
-	epoll_ -> add(listenFd_,serverRequest_.get(),(EPOLLIN | EPOLLET));
+	epoll_ -> add(listenFd_,serverRequest_,(EPOLLIN | EPOLLET));
 	//注册新建连接回调事件	
 	epoll_ -> setNewRequestCallback(std::bind(&NetServer::recvConnection,this));
 	//注册关闭连接回调函数
@@ -96,7 +118,7 @@ void NetServer::recvConnection(){
 	//newFd,只有这样的话才能尽量不漏掉所有的客户端连接.
 	while(1){
 		int newFd = ::accept4(listenFd_,nullptr,nullptr,SOCK_NONBLOCK | SOCK_CLOEXEC);
-		printf("接收到新的连接,创建新的fd=%d\n",newFd);
+		//printf("接收到新的连接,创建新的fd=%d\n",newFd);
 		if(newFd == -1){
 			if(errno == EAGAIN)
 				break;
@@ -104,131 +126,142 @@ void NetServer::recvConnection(){
 			break;
 		}
 		//为新的连接创建实体类,并分配资源
-		NewRequest* requ = new NewRequest(newFd);
-		timerTable_ -> addTimer(requ,CONNECT_TIMEOUT,std::bind(&NetServer::shutDownConnection,this,requ));
+		NewRequestPtr requPtr(new NewRequest(newFd));
+		//放入容器,保持NewRequest资源不被自动清除
+		ptrsMap_[newFd] = requPtr;
+		timerTable_ -> addTimer(requPtr,CONNECT_TIMEOUT,std::bind(&NetServer::shutDownConnection,this,newFd));
 		//注册套接字到epoll下监测设定的事件
-		epoll_ -> add(newFd,requ,(EPOLLIN | EPOLLONESHOT));
+		epoll_ -> add(newFd,requPtr,(EPOLLIN | EPOLLONESHOT));
 	}
 
 }
 
-void NetServer::shutDownConnection(NewRequest* requ){
-	printf("NetServer::shutDownConnection\n");
-	int fd = requ -> fd();
-	if(requ -> isWorking()){
+void NetServer::shutDownConnection(int newFd){
+	//printf("NetServer::shutDownConnection__fd=%d\n",newFd);
+	int fd = newFd;
+	{
+		printf("pre+++++++\n");
+		NewRequestPtr requPtr = ptrsMap_[newFd];
+		printf("tail++++++requ的引用为=%d\n",requPtr.use_count());
+		if(requPtr -> isWorking()){
 			return;
-	}
+		}
 
-	timerTable_->delTimer(requ);
-	epoll_ -> del(fd,requ,0);
-	delete requ;
-	requ=nullptr;
+		timerTable_->delTimer(requPtr);
+		epoll_ -> del(fd,requPtr,0);
+	}
+	ptrsMap_.erase(fd);
 }
 
 
-void NetServer::handleRequest(NewRequest* requ){
-	printf("NetServer::handleRequest\n");
-	timerTable_ -> delTimer(requ);
-	assert(requ != nullptr);
-	int fd = requ -> fd();
+void NetServer::handleRequest(int newFd){
+	NewRequestPtr requPtr = ptrsMap_[newFd];
+	//printf("NetServer::handleRequest__fd=%d\n",newFd);
+	/*
+	 * 这里delTimer后,如果读取数据成功,那么为这个fd添加Timer的操作是在handleResponse里面.
+	 */
+	timerTable_ -> delTimer(requPtr);
+	//assert(requPtr != nullptr);
+	int fd = newFd;
 	int readErrno;
-	printf("读取的fd=%d\n",fd);
-	int nRead = requ -> read(&readErrno);
+	//printf("读取的fd=%d\n",fd);
+	int nRead = requPtr -> read(&readErrno);
 
 	//表示客户端已断开连接
 	if(nRead == 0){
 		//printf("nRead=%d\n",nRead);
-		requ -> setNoWorking();
-		shutDownConnection(requ);
+		requPtr -> setNoWorking();
+		shutDownConnection(fd);
 		return;
 	}
 	//非EAGIN错误,断开连接
 	if(nRead < 0 && (readErrno != EAGAIN)){
 		//printf("!EAGAIN-nRead=%d\n",nRead);
-		requ -> setNoWorking();
-		shutDownConnection(requ);
+		requPtr -> setNoWorking();
+		shutDownConnection(fd);
 		return;
 	}	
 	//EAGAIN错误则释放线程使用权，，并监听下次EPOLLIN事件
 	if(nRead < 0 && readErrno == EAGAIN){
 		//printf("EAGAIN-nRead=%d\n",nRead);
 
-		epoll_ -> mod(fd,requ,(EPOLLIN | EPOLLONESHOT));
-		requ -> setNoWorking();
-		timerTable_ -> addTimer(requ,CONNECT_TIMEOUT,std::bind(&NetServer::shutDownConnection,this,requ));
+		epoll_ -> mod(fd,requPtr,(EPOLLIN | EPOLLONESHOT));
+		requPtr -> setNoWorking();
+		timerTable_ -> addTimer(requPtr,CONNECT_TIMEOUT,std::bind(&NetServer::shutDownConnection,this,fd));
 		return;
 	}
 	//如果解析报文出错，，就构造400报文返回
-	if(!requ -> parseRequest()){
+	if(!requPtr -> parseRequest()){
 		//printf("!parseRequest\n");
 
 		//发送400报文
 		NewResponse respon(400,"",false);
-		requ -> appendToOutBuffer(respon.makeResponse());
+		requPtr -> appendToOutBuffer(respon.makeResponse());
 		//这里不用触发EPOLLOUT事件,直接发送400报文,然后立刻关闭连接
 		int writeErrno;
-		requ -> write(&writeErrno);
-		requ -> setNoWorking();
-		shutDownConnection(requ);
+		requPtr -> write(&writeErrno);
+		requPtr-> setNoWorking();
+		shutDownConnection(fd);
 		return;
 	}
 	//如果解析成功,那么就发送200报文,触发EPOLLOUT事件发送;
-	if(requ -> parseFinish()){
+	if(requPtr -> parseFinish()){
 		//printf("parseFinish\n");
-		NewResponse respon(200,requ -> getPath(),requ -> keepAlive());
-		requ -> appendToOutBuffer(respon.makeResponse());
-		epoll_->mod(fd,requ,(EPOLLIN | EPOLLOUT | EPOLLONESHOT));	
+		NewResponse respon(200,requPtr -> getPath(),requPtr -> keepAlive());
+		requPtr -> appendToOutBuffer(respon.makeResponse());
+		epoll_->mod(fd,requPtr,(EPOLLIN | EPOLLOUT | EPOLLONESHOT));	
 	}
 }	
 //处理响应请求
-void NetServer::handleResponse(NewRequest* requ){
-	printf("NetServer::handleResponse\n");
-	timerTable_->delTimer(requ);
+void NetServer::handleResponse(int newFd){
+	NewRequestPtr requPtr = ptrsMap_[newFd];
+	//printf("NetServer::handleResponse__fd=%d__requ的引用数为%d\n",newFd,requPtr.use_count());
+	timerTable_->delTimer(requPtr);
 
-	assert(requ != nullptr);
-	int fd = requ -> fd();
+	assert(requPtr.use_count() >0);
+	int fd = newFd;
 
-	int toSend = requ -> writableBytes();
+	int toSend = requPtr -> writableBytes();
 	if(toSend == 0){
-		epoll_-> mod(fd,requ,(EPOLLIN | EPOLLONESHOT));
-		requ -> setNoWorking();
-		timerTable_ -> addTimer(requ,CONNECT_TIMEOUT,std::bind(&NetServer::shutDownConnection,this,requ));
+		epoll_-> mod(fd,requPtr,(EPOLLIN | EPOLLONESHOT));
+		requPtr -> setNoWorking();
+		timerTable_ -> addTimer(requPtr,CONNECT_TIMEOUT,std::bind(&NetServer::shutDownConnection,this,fd));
 		return;
 	}
 	
 	//此时outBuffer中有要发送的
 	int writeErrno;
-	int ret = requ -> write(&writeErrno);
+	int ret = requPtr -> write(&writeErrno);
 	
 	//非EAGAIN错误,则断开连接
 	if(ret < 0 && (writeErrno != EAGAIN)){
-		requ -> setNoWorking();
-		shutDownConnection(requ);
+		requPtr -> setNoWorking();
+		shutDownConnection(fd);
 		return;
 	}
 
 	if(ret < 0 && writeErrno == EAGAIN){
-		epoll_-> mod(fd,requ,(EPOLLIN | EPOLLOUT | EPOLLONESHOT));
+		epoll_-> mod(fd,requPtr,(EPOLLIN | EPOLLOUT | EPOLLONESHOT));
 		return;
 		
 	}
 
 	if(ret == toSend){
-		if(requ -> keepAlive()){
-			requ -> resetParse();
-			epoll_ -> mod(fd,requ,(EPOLLIN | EPOLLONESHOT));
-			requ -> setNoWorking();
-			timerTable_ -> addTimer(requ,CONNECT_TIMEOUT,std::bind(&NetServer::shutDownConnection,this,requ));
+		if(requPtr -> keepAlive()){
+			requPtr -> resetParse();
+			epoll_ -> mod(fd,requPtr,(EPOLLIN | EPOLLONESHOT));
+			requPtr -> setNoWorking();
+			timerTable_ -> addTimer(requPtr,CONNECT_TIMEOUT,std::bind(&NetServer::shutDownConnection,this,fd));
 		}else{
-			requ -> setNoWorking();
-			shutDownConnection(requ);
+			requPtr -> setNoWorking();
+			shutDownConnection(fd);
 		}
 		return;
 	}
 
-	epoll_ -> mod(fd,requ,(EPOLLIN | EPOLLOUT | EPOLLONESHOT));
-	requ -> setNoWorking();
-	timerTable_ -> addTimer(requ,CONNECT_TIMEOUT,std::bind(&NetServer::shutDownConnection,this,requ));
+	epoll_ -> mod(fd,requPtr,(EPOLLIN | EPOLLOUT | EPOLLONESHOT));
+	requPtr -> setNoWorking();
+	timerTable_ -> addTimer(requPtr,CONNECT_TIMEOUT,std::bind(&NetServer::shutDownConnection,this,fd));
 	return;
 }
 
