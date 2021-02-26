@@ -1,7 +1,0 @@
--rwsr-xr-x. 1 root root 27832 Jun 10  2014 /usr/bin/passwd
-s权限代表set uid，任何用户在运行passwd时都会以passwd文件的所有者身份运行
--rw-r--r-T 1 root root 205 Mar 26 16:42 1.txt
-上面的T表示的是此文件只能被：1.文件所有者2.文件所在目录的所有者3.root用户删除。
------a-------e-- 1.txt
-a属性可以追加>>,不可以覆盖添加>和删除rm -rf
-i属性任何形式的修改都不可行。
